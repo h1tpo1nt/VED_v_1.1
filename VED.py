@@ -130,13 +130,12 @@ def process_files():
         except FileNotFoundError:
             existing_dfs = {sheet: pd.DataFrame(columns=df.columns) for sheet, df in new_dfs.items()}
 
-        # Объединяем старые и новые данные
-        final_dfs = {}
-        for sheet, new_df in new_dfs.items():
-            old_df = existing_dfs.get(sheet, pd.DataFrame())
-            combined_df = pd.concat([old_df, new_df], ignore_index=True)
-            combined_df = combined_df.dropna(how='all', axis=1)  # убираем пустые колонки
-            final_dfs[sheet] = combined_df
+       # Объединяем старые и новые данные
+final_dfs = {}
+for sheet, new_df in new_dfs.items():
+    old_df = existing_dfs.get(sheet, pd.DataFrame())
+    combined_df = pd.concat([old_df, new_df], ignore_index=True)
+    final_dfs[sheet] = combined_df
 
         # Сохраняем в Excel
         with pd.ExcelWriter(output_path, mode='w', engine='openpyxl') as writer:
