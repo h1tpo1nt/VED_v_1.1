@@ -5,7 +5,9 @@ from openpyxl.utils.dataframe import dataframe_to_rows
 from tqdm import tqdm
 import shutil
 
-# Конфигурация
+# ======================================
+# Настройки путей и параметров
+# ======================================
 input_file = "/content/VED/Input/31 группа 2023-2024.xlsx" # Исходный файл
 target_folder = "/content/VED/Target_files"                # Шаблоны файлов
 output_folder = "/content/VED/Output"                      # Результаты
