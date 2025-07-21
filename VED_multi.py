@@ -190,38 +190,44 @@ allowed_product_types = {
     "Суперфосфаты"
 }
 
+# === СПИСОК ФАЙЛОВ ===
+source_files = [f for f in os.listdir(SOURCE_FOLDER) if f.endswith('.xlsx')]
+total_files = len(source_files)
+
 # === ОСНОВНОЙ ЦИКЛ ПО ФАЙЛАМ ===
-for filename in os.listdir(SOURCE_FOLDER):
-    if filename.endswith('.xlsx'):
-        source_file = os.path.join(SOURCE_FOLDER, filename)
-        output_file = os.path.join(OUTPUT_FOLDER, f"{os.path.splitext(filename)[0]} SORTING.xlsx")
+for i, filename in enumerate(source_files, start=1):
+    source_file = os.path.join(SOURCE_FOLDER, filename)
+    output_file = os.path.join(OUTPUT_FOLDER, f"{os.path.splitext(filename)[0]} SORTING.xlsx")
 
-        try:
-            # Загружаем исходные данные
-            df_source = pd.read_excel(source_file)
+    try:
+        # Загружаем исходные данные
+        df_source = pd.read_excel(source_file)
 
-            # Находим нужные колонки по префиксу
-            tnved_col_real = find_column(df_source, tnved_col_prefix)
-            desc_col_real = find_column(df_source, desc_col_prefix)
+        # Находим нужные колонки по префиксу
+        tnved_col_real = find_column(df_source, tnved_col_prefix)
+        desc_col_real = find_column(df_source, desc_col_prefix)
 
-            # Добавляем колонку Product
-            df_new = df_source.copy()
-            df_new['Product'] = df_new[tnved_col_real].map(product_map)
+        # Добавляем колонку Product
+        df_new = df_source.copy()
+        df_new['Product'] = df_new[tnved_col_real].map(product_map)
 
-            # Добавляем Grade
-            df_new['Grade'] = df_new.apply(
-                lambda row: determine_grade(row[desc_col_real], row['Product']), axis=1
-            )
+        # Добавляем Grade
+        df_new['Grade'] = df_new.apply(
+            lambda row: determine_grade(row[desc_col_real], row['Product']), axis=1
+        )
 
-            # Очищаем Grade, если Product не в списке разрешённых
-            df_new['Grade'] = df_new.apply(
-                lambda row: row['Grade'] if row['Product'] in allowed_product_types else '',
-                axis=1
-            )
+        # Очищаем Grade, если Product не в списке разрешённых
+        df_new['Grade'] = df_new.apply(
+            lambda row: row['Grade'] if row['Product'] in allowed_product_types else '',
+            axis=1
+        )
 
-            # Сохраняем в новый файл
-            df_new.to_excel(output_file, sheet_name='Лист 1', index=False)
-            print(f"✅ Обработано: {filename} → {os.path.basename(output_file)}")
+        # Сохраняем в новый файл
+        df_new.to_excel(output_file, sheet_name='Лист 1', index=False)
 
-        except Exception as e:
-            print(f"❌ Ошибка при обработке файла {filename}: {e}")
+        # === Вывод прогресса ===
+        progress = (i / total_files) * 100
+        print(f"✅ [{i}/{total_files}] ({progress:.1f}%) Обработано: {filename} → {os.path.basename(output_file)}")
+
+    except Exception as e:
+        print(f"❌ [{i}/{total_files}] ({(i / total_files) * 100:.1f}%) Ошибка при обработке файла {filename}: {e}")
