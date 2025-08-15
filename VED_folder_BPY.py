@@ -1,4 +1,4 @@
-!pip show pandas openpyxl
+
 
 import pandas as pd
 import re
@@ -16,29 +16,63 @@ df_product = pd.read_excel(product_file, sheet_name='ВЭД')
 product_map = dict(zip(df_product[tnved_col], df_product['Вид МУ']))
 
 # ==== ФУНКЦИИ ====
-
 def extract_npk(description):
     desc = str(description).lower().strip()
     desc = re.sub(r'[\s\xa0\u3000]+', ' ', desc)
+    # --- удаляем паттерны ГОСТ (разные форматы) ---
+    # Простейшие: ГОСТ 2-2013, ГОСТ 2081-2010
+    desc = re.sub(r'гост\s*\d{1,5}-\d{2,4}', '', desc, flags=re.IGNORECASE)
+    # ГОСТ X–XXXX (равно как и X-XXXX): короткий номер и год
+    desc = re.sub(r'гост\s*\d{1,2}[-–]\d{3,4}', '', desc, flags=re.IGNORECASE)
+    # ГОСТ X–XXXX–XX (доп. суффикс), например ГОСТ 123-456-78
+    desc = re.sub(r'гост\s*\d{1,5}[-–]\d{2,4}[-–]\d{2,4}', '', desc, flags=re.IGNORECASE)
+    # ГОСТ X–XXXX: Часть X
+    desc = re.sub(r'гост\s*\d{1,5}[-–]\d{2,4}\s*:\s*часть\s*\d+', '', desc, flags=re.IGNORECASE)
+    # ГОСТ X–XXXX (XXXX)
+    desc = re.sub(r'гост\s*\d{1,5}[-–]\d{2,4}\s*\(\d{2,4}\)', '', desc, flags=re.IGNORECASE)
+    # На всякий случай: ГОСТ без пробела перед номером (ГОСТ2-2013)
+    desc = re.sub(r'гост\d{1,5}[-–]\d{2,4}', '', desc, flags=re.IGNORECASE)
 
-    # --- удаляем паттерны ТУ ---
+    # --- удаляем расширенные паттерны ТУ ---
+    desc = re.sub(r'ту\s*\d{4}-\d{3}-\d{8}-\d{4}', '', desc, flags=re.IGNORECASE)  # ТУ 2181-073-05761695-2016
+    desc = re.sub(r'ту\s*\d{2}\.\d{2}\.\d{2}-\d{3}-\d{8}-\d{4}', '', desc, flags=re.IGNORECASE)  # вариант с точками + длинный код
     desc = re.sub(r'ту\s*\d{2}\.\d{2}\.\d{2}-\d{3}-\d{4}', '', desc)
     desc = re.sub(r'ту\s*\d{2}\.\d{2}\.\d{2}-\d{4}-\d{4}', '', desc)
+    
+    # --- удаляем количества в килограммах (10 КГ, 10кг, 10 кг, 10Kg, 10.5кг и т.п.) ---
+    # С пробелом или без, целые и десятичные числа, любые регистры букв
+    desc = re.sub(r'(?<!\S)\d+(?:[.,]\d+)?\s*[кk][гg](?!\S)', '', desc, flags=re.IGNORECASE)
+    
+    # 🔹 Приоритет: если есть формат x-x-x, сразу возвращаем
+    dash_grade_match = re.search(
+        r'\b(\d+(?:[.,]\d+)?)\s*-\s*(\d+(?:[.,]\d+)?)\s*-\s*(\d+(?:[.,]\d+)?)\b',
+        desc
+    )
+    if dash_grade_match:
+        try:
+            n = float(dash_grade_match.group(1).replace(',', '.'))
+            p = float(dash_grade_match.group(2).replace(',', '.'))
+            k = float(dash_grade_match.group(3).replace(',', '.'))
+            n = int(n) if n == int(n) else n
+            p = int(p) if p == int(p) else p
+            k = int(k) if k == int(k) else k
+            return {'N': {'value': n}, 'P': {'value': p}, 'K': {'value': k}}
+        except ValueError:
+            pass
 
-    # формат NPK x:x:x или x-x-x
+    # формат NPK x:x:x или NPK x-x-x или NP(...) x:x
     npk_match = re.search(
-        r'\b(?:npk\s*)?(\d+(?:\.\d+)?)\s*[:-]\s*(\d+(?:\.\d+)?)\s*[:-]\s*(\d+(?:\.\d+)?)',
+        r'\b(?:npk|np)\s*(?:\([^)]+\))?\s*(\d+(?:\.\d+)?)\s*[:-]\s*(\d+(?:\.\d+)?)'
+        r'(?:\s*[:-]\s*(\d+(?:\.\d+)?))?',
         desc, re.IGNORECASE
     )
     if npk_match:
         n = float(npk_match.group(1))
         p = float(npk_match.group(2))
-        k = float(npk_match.group(3))
-
+        k = float(npk_match.group(3)) if npk_match.group(3) is not None else 0
         n = int(n) if n <= 100 and n == int(n) else (n if n <= 100 else 0)
         p = int(p) if p <= 100 and p == int(p) else (p if p <= 100 else 0)
         k = int(k) if k <= 100 and k == int(k) else (k if k <= 100 else 0)
-
         return {'N': {'value': n}, 'P': {'value': p}, 'K': {'value': k}}
 
     # поиск по ключам
@@ -59,7 +93,6 @@ def extract_npk(description):
             r'\bкарбонат\s*кальца', r'\bсодержание\s*кальция', r'\bcacо3'
         ], 'value': 0}
     }
-
     for el_key, data in elements.items():
         for keyword in data['keywords']:
             pattern = rf'{keyword}\D*?(\d+(?:[,.]\d+)?)(?=\s*(?:%|мас|в пересчёте|марка|гост|п/п|кг|л|литров|литра|мешк|пакет|упаковк|порошок|гранулы|таблетк|вес|брутто|нетто|пластик|бумажн|поддон|паллет|предназначен|используется|входит|содержит|состав|марка|не более|не менее|не превышает|минимум|максимум|,|\.|;|:|$))'
@@ -74,7 +107,7 @@ def extract_npk(description):
                     continue
                 break
 
-    k2o_match = re.search(r'в\s*пересч[ёе]те.*?k2o\D*(\d+(?:[,.]\d+)?)', desc, re.IGNORECASE)
+    k2o_match = re.search(r'в\sпересч[ёе]те.?k2o\D*(\d+(?:[,.]\d+)?)', desc, re.IGNORECASE)
     if k2o_match:
         try:
             k_value = float(k2o_match.group(1).replace(',', '.'))
@@ -82,7 +115,16 @@ def extract_npk(description):
         except ValueError:
             pass
 
-    p2o5_match = re.search(r'в\s*пересч[ёе]те.*?p2o5\D*(\d+(?:[,.]\d+)?)', desc, re.IGNORECASE)
+    # Новый паттерн: просто "КАЛИЯ В ПЕРЕСЧЕТЕ НА K2O - 50%" или "K2O - 50%"
+    k2o_simple = re.search(r'(?:калия\sв\sпересч[ёе]те\sна\s)?k2o\D*(\d+(?:[,.]\d+)?)', desc, re.IGNORECASE)
+    if k2o_simple and not elements['K']['value']:
+        try:
+            k_value = float(k2o_simple.group(1).replace(',', '.'))
+            elements['K']['value'] = int(k_value) if k_value == int(k_value) else k_value
+        except ValueError:
+            pass
+
+    p2o5_match = re.search(r'в\sпересч[ёе]те.?p2o5\D*(\d+(?:[,.]\d+)?)', desc, re.IGNORECASE)
     if p2o5_match:
         try:
             p2o5_value = float(p2o5_match.group(1).replace(',', '.'))
@@ -90,15 +132,103 @@ def extract_npk(description):
         except ValueError:
             pass
 
-    total_n_match = re.search(r'(?:содержание|содержит|общий|содержание азота).*?(\d+(?:[,.]\d+)?)', desc, re.IGNORECASE)
-    if total_n_match:
+    # Новый паттерн: просто "P2O5 - 46%"
+    p2o5_simple = re.search(r'p2o5\D*(\d+(?:[,.]\d+)?)', desc, re.IGNORECASE)
+    if p2o5_simple and not elements['P']['value']:
         try:
-            n_value = float(total_n_match.group(1).replace(',', '.'))
-            elements['N']['value'] = int(n_value) if n_value == int(n_value) else n_value
+            p2_value = float(p2o5_simple.group(1).replace(',', '.'))
+            elements['P']['value'] = int(p2_value * 0.436) if (p2_value * 0.436) == int(p2_value * 0.436) else p2_value * 0.436
         except ValueError:
             pass
 
+    # Поиск фосфорного ангидрида
+    p_anhydride = re.search(r'фосфорн\w*\sангидрид\D*(\d+(?:[,.]\d+)?)', desc, re.IGNORECASE)
+    if p_anhydride and not elements['P']['value']:
+        try:
+            p_val = float(p_anhydride.group(1).replace(',', '.'))
+            elements['P']['value'] = p_val
+        except ValueError:
+            pass
+
+    # Новый паттерн: "МАССОВАЯ ДОЛЯ АЗОТА - 18%"
+    n_mass = re.search(r'азот\w*\D*(\d+(?:[,.]\d+)?)', desc, re.IGNORECASE)
+    if n_mass and not elements['N']['value']:
+        try:
+            n_val = float(n_mass.group(1).replace(',', '.'))
+            elements['N']['value'] = n_val
+        except ValueError:
+            pass
+
+    # Новый паттерн для "СОДЕРЖАЩИЙ 46,2 МАС.% АЗОТА"
+    n_contains = re.search(r'содерж\w*\D*(\d+(?:[,.]\d+)?)\s*мас\.?%[^а-я]*азот', desc, re.IGNORECASE)
+    if n_contains and not elements['N']['value']:
+        try:
+            n_val = float(n_contains.group(1).replace(',', '.'))
+            elements['N']['value'] = n_val
+        except ValueError:
+            pass
+    # 🔹 Дополнительные паттерны для азота (N)
+    if not elements['N']['value']:
+        extra_n_patterns = [
+            r'азот\w*[^0-9]{0,10}(\d+(?:[.,]\d+)?)\s*%?',
+            r'содерж\w*[^0-9]{0,10}(\d+(?:[.,]\d+)?)\s*мас\.?%[^а-я]*азот',
+            r'азот\w*\D*(\d+(?:[,.]\d+)?)',
+            r'содерж\w*\D*(\d+(?:[,.]\d+)?)\s*мас\.?%[^а-я]*азот'
+        ]
+        for pat in extra_n_patterns:
+            m = re.search(pat, desc, re.IGNORECASE)
+            if m:
+                try:
+                    n_val = float(m.group(1).replace(',', '.'))
+                    if n_val <= 100:
+                        elements['N']['value'] = int(n_val) if n_val == int(n_val) else n_val
+                        break
+                except ValueError:
+                    pass
+
+    # 🔹 Дополнительные паттерны для P2O5 (P)
+    if not elements['P']['value']:
+        extra_p_patterns = [
+            r'p2o5\D*(\d+(?:[.,]\d+)?)',
+            r'фосфорн\w*\sангидрид\D*(\d+(?:[,.]\d+)?)',
+            r'в\sпересч[ёе]те.?p2o5\D*(\d+(?:[,.]\d+)?)'
+        ]
+        for pat in extra_p_patterns:
+            m = re.search(pat, desc, re.IGNORECASE)
+            if m:
+                try:
+                    p_val = float(m.group(1).replace(',', '.'))
+                    if p_val <= 100:
+                        # перевод P2O5 → P при необходимости
+                        if 'p2o5' in pat.lower():
+                            p_val = p_val * 0.436
+                        elements['P']['value'] = int(p_val) if p_val == int(p_val) else p_val
+                        break
+                except ValueError:
+                    pass
+
+    # 🔹 Дополнительные паттерны для K2O (K)
+    if not elements['K']['value']:
+        extra_k_patterns = [
+            r'калия\sв\sпересч[ёе]те\sна\sk2o\D*(\d+(?:[,.]\d+)?)',
+            r'k2o\D*(\d+(?:[,.]\d+)?)',
+            r'в\sпересч[ёе]те.?k2o\D*(\d+(?:[,.]\d+)?)',
+            r'(?:калия\sв\sпересч[ёе]те\sна\s)?k2o\D*(\d+(?:[,.]\d+)?)'
+        ]
+        for pat in extra_k_patterns:
+            m = re.search(pat, desc, re.IGNORECASE)
+            if m:
+                try:
+                    k_val = float(m.group(1).replace(',', '.'))
+                    if k_val <= 100:
+                        elements['K']['value'] = int(k_val) if k_val == int(k_val) else k_val
+                        break
+                except ValueError:
+                    pass
+
     return {k: v for k, v in elements.items()}
+
+
 
 def determine_grade(description, product):
     result = extract_npk(description)
